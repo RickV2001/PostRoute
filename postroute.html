@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>PostRoute — Jouw bezorgroute</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  
+  :root {
+    --orange: #E8590C;
+    --orange-light: #FFF0E8;
+    --orange-mid: #F47B40;
+    --navy: #0D1B2A;
+    --navy-mid: #1E3248;
+    --gray-100: #F5F4F2;
+    --gray-200: #E8E6E2;
+    --gray-400: #A09D98;
+    --gray-700: #3D3A36;
+    --white: #FFFFFF;
+    --radius: 10px;
+    --panel-w: 340px;
+  }
+
+  html, body { height: 100%; font-family: 'DM Sans', sans-serif; background: var(--navy); color: var(--gray-700); }
+
+  /* ── LAYOUT ── */
+  #app { display: flex; height: 100vh; overflow: hidden; }
+  
+  #sidebar {
+    width: var(--panel-w);
+    min-width: var(--panel-w);
+    background: var(--white);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 10;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.15);
+  }
+
+  #map-wrap { flex: 1; position: relative; }
+  #map { width: 100%; height: 100%; }
+
+  /* ── HEADER ── */
+  #header {
+    background: var(--navy);
+    padding: 14px 16px 12px;
+    color: var(--white);
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+  #header h1 span { color: var(--orange-mid); }
+  #header p { font-size: 11px; color: #7A9AB8; margin-top: 2px; }
+
+  /* ── TABS ── */
+  #tabs {
+    display: flex;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-100);
+    flex-shrink: 0;
+  }
+  .tab {
+    flex: 1; padding: 9px 4px; font-size: 12px; font-weight: 500;
+    border: none; background: none; cursor: pointer;
+    color: var(--gray-400); border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .tab.active { color: var(--orange); border-bottom-color: var(--orange); background: var(--white); }
+
+  /* ── PANELS ── */
+  .panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .panel.active { display: flex; }
+
+  /* ── ROUTE PANEL ── */
+  #add-form { padding: 12px; border-bottom: 1px solid var(--gray-200); flex-shrink: 0; }
+  #add-form input {
+    width: 100%; padding: 9px 12px; border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius); font-family: inherit; font-size: 13px;
+    outline: none; transition: border 0.15s;
+  }
+  #add-form input:focus { border-color: var(--orange); }
+  #add-form .row { display: flex; gap: 6px; margin-top: 6px; }
+  #add-form button {
+    flex: 1; padding: 8px; border: none; border-radius: var(--radius);
+    font-family: inherit; font-size: 12px; font-weight: 500;
+    cursor: pointer; transition: opacity 0.15s;
+  }
+  #add-form button:hover { opacity: 0.85; }
+  #btn-add { background: var(--orange); color: var(--white); }
+  #btn-route { background: var(--navy); color: var(--white); }
+
+  /* ── STOP LIST ── */
+  #stops-header {
+    padding: 8px 12px; display: flex; justify-content: space-between;
+    align-items: center; flex-shrink: 0; background: var(--gray-100);
+    border-bottom: 1px solid var(--gray-200);
+  }
+  #stops-header span { font-size: 11px; font-weight: 500; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.5px; }
+  #stops-header button {
+    font-size: 11px; padding: 3px 8px; border: 1px solid var(--gray-200);
+    border-radius: 6px; background: var(--white); cursor: pointer;
+    color: #C44; font-family: inherit; font-weight: 500;
+  }
+  #stops-header button:hover { background: #FFF0F0; }
+  
+  #stop-list {
+    overflow-y: auto; flex: 1;
+    padding: 6px;
+  }
+
+  .stop-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--gray-200); background: var(--white);
+    margin-bottom: 4px; cursor: grab; transition: box-shadow 0.15s;
+    user-select: none;
+  }
+  .stop-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .stop-item.dragging { opacity: 0.4; }
+  .stop-item.drag-over { border-color: var(--orange); background: var(--orange-light); }
+
+  .stop-num {
+    width: 22px; height: 22px; border-radius: 50%; background: var(--orange);
+    color: var(--white); font-size: 10px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; font-family: 'DM Mono', monospace;
+  }
+  .stop-num.done { background: #6BB36B; }
+  .stop-num.current { background: var(--navy); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.15)} }
+
+  .stop-info { flex: 1; min-width: 0; }
+  .stop-name { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stop-addr { font-size: 10px; color: var(--gray-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  
+  .stop-actions { display: flex; gap: 3px; flex-shrink: 0; }
+  .stop-actions button {
+    width: 24px; height: 24px; border: none; border-radius: 5px;
+    background: var(--gray-100); cursor: pointer; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.1s;
+  }
+  .stop-actions button:hover { background: var(--gray-200); }
+  .stop-actions .del:hover { background: #FFE8E8; color: #C44; }
+  .stop-actions .done-btn:hover { background: #E8F5E8; }
+
+  /* ── IMPORT PANEL ── */
+  #import-panel { padding: 12px; gap: 10px; overflow-y: auto; }
+  #import-panel label { font-size: 12px; font-weight: 500; display: block; margin-bottom: 4px; }
+  #import-panel textarea {
+    width: 100%; height: 180px; padding: 10px; border: 1.5px solid var(--gray-200);
+    border-radius: var(--radius); font-family: 'DM Mono', monospace; font-size: 11px;
+    resize: vertical; outline: none; transition: border 0.15s;
+  }
+  #import-panel textarea:focus { border-color: var(--orange); }
+  #import-panel p { font-size: 11px; color: var(--gray-400); line-height: 1.5; }
+  .import-btn {
+    width: 100%; padding: 10px; background: var(--orange); color: var(--white);
+    border: none; border-radius: var(--radius); font-family: inherit;
+    font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity 0.15s;
+  }
+  .import-btn:hover { opacity: 0.85; }
+
+  /* ── STATS BAR ── */
+  #stats-bar {
+    padding: 10px 12px; background: var(--navy); color: var(--white);
+    display: flex; gap: 12px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  .stat { font-size: 11px; }
+  .stat strong { display: block; font-size: 15px; font-family: 'DM Mono', monospace; }
+
+  /* ── MAP OVERLAY BUTTONS ── */
+  #map-controls {
+    position: absolute; top: 12px; right: 12px; z-index: 500;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .map-btn {
+    padding: 8px 12px; background: var(--white); border: none;
+    border-radius: var(--radius); font-family: inherit; font-size: 12px;
+    font-weight: 500; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    transition: box-shadow 0.15s;
+  }
+  .map-btn:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+  .map-btn.primary { background: var(--orange); color: var(--white); }
+
+  /* ── CURRENT STOP OVERLAY ── */
+  #current-overlay {
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 500; background: var(--navy); color: var(--white);
+    padding: 10px 16px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    text-align: center; min-width: 220px; display: none;
+  }
+  #current-overlay .label { font-size: 10px; color: #7A9AB8; text-transform: uppercase; letter-spacing: 0.5px; }
+  #current-overlay .addr { font-size: 14px; font-weight: 600; margin: 2px 0 8px; }
+  #current-overlay button {
+    padding: 6px 16px; background: var(--orange); color: var(--white);
+    border: none; border-radius: 7px; font-family: inherit; font-size: 12px;
+    font-weight: 500; cursor: pointer;
+  }
+
+  /* ── TOAST ── */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--navy); color: var(--white); padding: 8px 16px;
+    border-radius: 8px; font-size: 12px; z-index: 9999;
+    opacity: 0; transition: opacity 0.3s; pointer-events: none;
+  }
+  #toast.show { opacity: 1; }
+
+  /* ── MOBILE ── */
+  @media (max-width: 600px) {
+    #app { flex-direction: column; }
+    #sidebar { width: 100%; min-width: 0; height: 45vh; flex-shrink: 0; }
+    #map-wrap { height: 55vh; }
+    :root { --panel-w: 100%; }
+  }
+
+  /* ── LEAFLET CUSTOMIZATIONS ── */
+  .custom-marker {
+    width: 28px; height: 28px; border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg); display: flex; align-items: center;
+    justify-content: center; font-size: 9px; font-weight: 700;
+    font-family: 'DM Mono', monospace; color: white;
+    border: 2px solid white; box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  }
+  .marker-inner { transform: rotate(45deg); }
+  
+  /* Geocoding suggestions */
+  #suggestions {
+    position: absolute; background: white; border: 1px solid var(--gray-200);
+    border-radius: var(--radius); z-index: 1000; width: calc(var(--panel-w) - 24px);
+    max-height: 160px; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    display: none;
+  }
+  .suggestion {
+    padding: 8px 12px; font-size: 12px; cursor: pointer;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .suggestion:hover { background: var(--orange-light); }
+  .suggestion:last-child { border-bottom: none; }
+
+  #add-form { position: relative; }
+  
+  .empty-state {
+    text-align: center; padding: 24px; color: var(--gray-400); font-size: 12px;
+  }
+  .empty-state .icon { font-size: 28px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div id="header">
+      <h1>Post<span>Route</span></h1>
+      <p>Onbeperkte stops &bull; Gratis &bull; Mobielvriendelijk</p>
+    </div>
+
+    <div id="tabs">
+      <button class="tab active" onclick="switchTab('route')">📍 Route</button>
+      <button class="tab" onclick="switchTab('import')">📋 Importeer</button>
+      <button class="tab" onclick="switchTab('navigate')">🧭 Navigeer</button>
+    </div>
+
+    <!-- ROUTE PANEL -->
+    <div class="panel active" id="panel-route">
+      <div id="add-form">
+        <input type="text" id="addr-input" placeholder="Voer adres in, bijv. Hoofdstraat 1, Amsterdam" autocomplete="off"/>
+        <div id="suggestions"></div>
+        <div class="row">
+          <button id="btn-add" onclick="addFromInput()">+ Toevoegen</button>
+          <button id="btn-route" onclick="calculateRoute()">🗺 Bereken route</button>
+        </div>
+      </div>
+      <div id="stops-header">
+        <span id="stop-count-label">0 stops</span>
+        <button onclick="clearAll()">Wis alles</button>
+      </div>
+      <div id="stop-list">
+        <div class="empty-state">
+          <div class="icon">📬</div>
+          Voeg adressen toe om te beginnen
+        </div>
+      </div>
+      <div id="stats-bar">
+        <div class="stat"><strong id="stat-stops">0</strong>stops</div>
+        <div class="stat"><strong id="stat-done">0</strong>bezorgd</div>
+        <div class="stat"><strong id="stat-dist">—</strong>km totaal</div>
+      </div>
+    </div>
+
+    <!-- IMPORT PANEL -->
+    <div class="panel" id="panel-import">
+      <div id="import-panel">
+        <label>Plak adressen (één per regel of kommagescheiden):</label>
+        <textarea id="import-text" placeholder="Voorbeeldstraat 1, Amsterdam&#10;Kerkstraat 5, Utrecht&#10;Laan van Meerdervoort 12, Den Haag&#10;..."></textarea>
+        <p style="margin: 6px 0">Je kunt ook een CSV plakken: elk adres op een nieuwe regel. De eerste kolom wordt gebruikt als adres. Bestaande stops blijven behouden.</p>
+        <button class="import-btn" onclick="importAddresses()" style="margin-top:8px">📋 Importeer adressen</button>
+        <div style="margin-top: 12px; padding: 10px; background: var(--gray-100); border-radius: 8px;">
+          <p style="font-size: 11px; font-weight: 500; margin-bottom: 4px;">Tip voor PostNL-routes:</p>
+          <p>Kopieer de adressenlijst uit je routeboek of bezorgapp en plak het hier. Zolang elk adres op een nieuwe regel staat werkt het.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- NAVIGATE PANEL -->
+    <div class="panel" id="panel-navigate">
+      <div style="padding: 12px; flex: 1; overflow-y: auto;">
+        <div id="nav-current" style="background: var(--orange-light); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; display: none;">
+          <div style="font-size: 10px; color: var(--orange); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Huidige stop</div>
+          <div id="nav-addr" style="font-size: 15px; font-weight: 600;"></div>
+          <div style="display: flex; gap: 6px; margin-top: 8px;">
+            <button onclick="markDone()" style="flex:1; padding: 8px; background: #6BB36B; color: white; border: none; border-radius: 7px; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer;">✓ Bezorgd</button>
+            <button onclick="skipStop()" style="flex:1; padding: 8px; background: var(--gray-200); border: none; border-radius: 7px; font-family: inherit; font-size: 12px; font-weight: 500; cursor: pointer;">→ Sla over</button>
+          </div>
+        </div>
+        <div id="nav-next" style="display: none; background: var(--gray-100); border-radius: var(--radius); padding: 12px; margin-bottom: 10px;">
+          <div style="font-size: 10px; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Volgende</div>
+          <div id="nav-next-addr" style="font-size: 13px;"></div>
+        </div>
+        <div id="nav-start-wrap" style="text-align: center; padding: 20px 0;">
+          <p style="font-size: 12px; color: var(--gray-400); margin-bottom: 12px;">Voeg stops toe op het tabblad Route en start dan de navigatie.</p>
+          <button onclick="startNavigation()" style="padding: 10px 24px; background: var(--navy); color: white; border: none; border-radius: var(--radius); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer;">🧭 Start navigatie</button>
+        </div>
+        <div id="nav-progress" style="display:none; margin-top: 6px;">
+          <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--gray-400); margin-bottom: 4px;">
+            <span id="nav-prog-txt">0 / 0</span>
+            <span id="nav-pct">0%</span>
+          </div>
+          <div style="background: var(--gray-200); border-radius: 99px; height: 6px; overflow: hidden;">
+            <div id="nav-bar" style="height: 100%; background: var(--orange); border-radius: 99px; transition: width 0.3s; width: 0%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="map-controls">
+      <button class="map-btn" onclick="fitAll()">⊞ Fit kaart</button>
+      <button class="map-btn" onclick="toggleSatellite()" id="sat-btn">🛰 Satelliet</button>
+    </div>
+    <div id="current-overlay">
+      <div class="label">Volgende bezorging</div>
+      <div class="addr" id="overlay-addr">—</div>
+      <button onclick="markDone()">✓ Bezorgd</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── STATE ──
+let stops = [];
+let currentStopIdx = 0;
+let navigating = false;
+let routeLayer = null;
+let markerLayer = null;
+let satellite = false;
+let geocodeTimer = null;
+let dragSrcIdx = null;
+
+// ── MAP SETUP ──
+const osmTile = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+const satTile = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const map = L.map('map', { zoomControl: true }).setView([52.3, 5.3], 8);
+let tileLayer = L.tileLayer(osmTile, { attribution: '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+markerLayer = L.layerGroup().addTo(map);
+
+// ── TABS ──
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['route','import','navigate'][i] === name));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── GEOCODING (Nominatim) ──
+async function geocode(address) {
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&countrycodes=nl&limit=1&addressdetails=1`;
+  try {
+    const r = await fetch(url, { headers: { 'Accept-Language': 'nl', 'User-Agent': 'PostRoute/1.0' } });
+    const data = await r.json();
+    if (data.length > 0) return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+    return null;
+  } catch { return null; }
+}
+
+async function getSuggestions(query) {
+  if (query.length < 4) return [];
+  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=nl&limit=5&addressdetails=1`;
+  try {
+    const r = await fetch(url, { headers: { 'Accept-Language': 'nl', 'User-Agent': 'PostRoute/1.0' } });
+    return await r.json();
+  } catch { return []; }
+}
+
+const addrInput = document.getElementById('addr-input');
+const suggBox = document.getElementById('suggestions');
+
+addrInput.addEventListener('input', () => {
+  clearTimeout(geocodeTimer);
+  const val = addrInput.value.trim();
+  if (val.length < 4) { suggBox.style.display = 'none'; return; }
+  geocodeTimer = setTimeout(async () => {
+    const results = await getSuggestions(val);
+    if (results.length === 0) { suggBox.style.display = 'none'; return; }
+    suggBox.innerHTML = results.map(r => `<div class="suggestion" data-lat="${r.lat}" data-lon="${r.lon}" data-name="${escHtml(r.display_name)}">${escHtml(r.display_name.split(',').slice(0,3).join(','))}</div>`).join('');
+    suggBox.style.display = 'block';
+    suggBox.querySelectorAll('.suggestion').forEach(el => {
+      el.addEventListener('click', () => {
+        addrInput.value = el.dataset.name.split(',').slice(0,3).join(',').trim();
+        suggBox.style.display = 'none';
+        addStop(addrInput.value, parseFloat(el.dataset.lat), parseFloat(el.dataset.lon));
+        addrInput.value = '';
+      });
+    });
+  }, 400);
+});
+
+addrInput.addEventListener('keydown', e => { if (e.key === 'Enter') addFromInput(); });
+document.addEventListener('click', e => { if (!e.target.closest('#add-form')) suggBox.style.display = 'none'; });
+
+// ── ADD STOP ──
+async function addFromInput() {
+  const val = addrInput.value.trim();
+  if (!val) return;
+  showToast('Adres opzoeken…');
+  const geo = await geocode(val);
+  if (!geo) { showToast('Adres niet gevonden. Probeer specifieker.'); return; }
+  addStop(val, geo.lat, geo.lon, geo.display);
+  addrInput.value = '';
+  suggBox.style.display = 'none';
+}
+
+function addStop(name, lat, lon, display) {
+  const stop = { id: Date.now(), name: name.split(',').slice(0,2).join(',').trim(), addr: display || name, lat, lon, done: false };
+  stops.push(stop);
+  renderList();
+  renderMarkers();
+  showToast('Stop toegevoegd ✓');
+}
+
+// ── RENDER LIST ──
+function renderList() {
+  const list = document.getElementById('stop-list');
+  document.getElementById('stop-count-label').textContent = stops.length + ' stop' + (stops.length !== 1 ? 's' : '');
+  document.getElementById('stat-stops').textContent = stops.length;
+  document.getElementById('stat-done').textContent = stops.filter(s => s.done).length;
+
+  if (stops.length === 0) {
+    list.innerHTML = '<div class="empty-state"><div class="icon">📬</div>Voeg adressen toe om te beginnen</div>';
+    return;
+  }
+
+  list.innerHTML = stops.map((s, i) => `
+    <div class="stop-item" draggable="true" data-idx="${i}" id="stop-${s.id}">
+      <div class="stop-num ${s.done ? 'done' : (navigating && i === currentStopIdx ? 'current' : '')}">${i + 1}</div>
+      <div class="stop-info">
+        <div class="stop-name">${escHtml(s.name)}</div>
+        <div class="stop-addr">${escHtml((s.addr || '').split(',').slice(0,2).join(','))}</div>
+      </div>
+      <div class="stop-actions">
+        <button onclick="moveUp(${i})" title="Omhoog">↑</button>
+        <button onclick="moveDown(${i})" title="Omlaag">↓</button>
+        <button class="del" onclick="removeStop(${i})" title="Verwijder">✕</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Drag & drop
+  list.querySelectorAll('.stop-item').forEach(el => {
+    el.addEventListener('dragstart', e => { dragSrcIdx = parseInt(el.dataset.idx); el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+    el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('drag-over'); });
+    el.addEventListener('dragleave', () => el.classList.remove('drag-over'));
+    el.addEventListener('drop', e => {
+      e.preventDefault(); el.classList.remove('drag-over');
+      const tgt = parseInt(el.dataset.idx);
+      if (dragSrcIdx !== null && dragSrcIdx !== tgt) {
+        const moved = stops.splice(dragSrcIdx, 1)[0];
+        stops.splice(tgt, 0, moved);
+        renderList(); renderMarkers();
+      }
+    });
+  });
+}
+
+// ── MARKERS ──
+function renderMarkers() {
+  markerLayer.clearLayers();
+  stops.forEach((s, i) => {
+    const color = s.done ? '#6BB36B' : (navigating && i === currentStopIdx ? '#0D1B2A' : '#E8590C');
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="custom-marker" style="background:${color}"><span class="marker-inner">${i+1}</span></div>`,
+      iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -28]
+    });
+    L.marker([s.lat, s.lon], { icon })
+      .bindPopup(`<strong>${i+1}. ${s.name}</strong><br><small>${(s.addr||'').split(',').slice(0,3).join(',')}</small>`)
+      .addTo(markerLayer);
+  });
+}
+
+function fitAll() {
+  if (stops.length === 0) return;
+  const bounds = L.latLngBounds(stops.map(s => [s.lat, s.lon]));
+  map.fitBounds(bounds, { padding: [40, 40] });
+}
+
+// ── ROUTE CALCULATION (OSRM) ──
+async function calculateRoute() {
+  if (stops.length < 2) { showToast('Voeg minstens 2 stops toe.'); return; }
+  showToast('Route berekenen…');
+  if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
+
+  const coords = stops.map(s => `${s.lon},${s.lat}`).join(';');
+  const url = `https://router.project-osrm.org/route/v1/foot/${coords}?overview=full&geometries=geojson`;
+
+  try {
+    const r = await fetch(url);
+    const data = await r.json();
+    if (data.code !== 'Ok') { showToast('Routeberekening mislukt.'); return; }
+    const route = data.routes[0];
+    const km = (route.distance / 1000).toFixed(1);
+    const min = Math.round(route.duration / 60);
+    document.getElementById('stat-dist').textContent = km;
+    showToast(`Route: ${km} km, ±${min} min ✓`);
+    routeLayer = L.geoJSON(route.geometry, { style: { color: '#E8590C', weight: 4, opacity: 0.7 } }).addTo(map);
+    fitAll();
+  } catch { showToast('Verbindingsfout. Controleer internet.'); }
+}
+
+// ── NAVIGATION ──
+function startNavigation() {
+  if (stops.length === 0) { showToast('Geen stops om te navigeren.'); return; }
+  navigating = true;
+  currentStopIdx = stops.findIndex(s => !s.done);
+  if (currentStopIdx === -1) currentStopIdx = 0;
+  updateNavDisplay();
+  renderMarkers();
+  document.getElementById('nav-start-wrap').style.display = 'none';
+  showToast('Navigatie gestart!');
+}
+
+function updateNavDisplay() {
+  const current = stops[currentStopIdx];
+  const next = stops[currentStopIdx + 1];
+  const done = stops.filter(s => s.done).length;
+  const total = stops.length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+
+  document.getElementById('nav-current').style.display = current ? 'block' : 'none';
+  document.getElementById('nav-next').style.display = next ? 'block' : 'none';
+  document.getElementById('nav-progress').style.display = 'block';
+  document.getElementById('nav-prog-txt').textContent = `${done} / ${total}`;
+  document.getElementById('nav-pct').textContent = pct + '%';
+  document.getElementById('nav-bar').style.width = pct + '%';
+
+  if (current) {
+    document.getElementById('nav-addr').textContent = current.name;
+    document.getElementById('overlay-addr').textContent = current.name;
+    document.getElementById('current-overlay').style.display = 'block';
+    map.flyTo([current.lat, current.lon], 16, { duration: 1 });
+  }
+  if (next) document.getElementById('nav-next-addr').textContent = next.name;
+
+  if (done === total) {
+    document.getElementById('current-overlay').style.display = 'none';
+    document.getElementById('nav-current').style.display = 'none';
+    document.getElementById('nav-current').innerHTML = '<div style="text-align:center;padding:12px;font-size:14px;font-weight:600;color:#6BB36B;">🎉 Route voltooid!</div>';
+    document.getElementById('nav-current').style.display = 'block';
+    showToast('🎉 Alle stops bezorgd!');
+  }
+}
+
+function markDone() {
+  if (currentStopIdx < stops.length) {
+    stops[currentStopIdx].done = true;
+    currentStopIdx++;
+    while (currentStopIdx < stops.length && stops[currentStopIdx].done) currentStopIdx++;
+    renderList(); renderMarkers();
+    if (currentStopIdx < stops.length) updateNavDisplay();
+    else updateNavDisplay();
+  }
+}
+
+function skipStop() {
+  currentStopIdx++;
+  if (currentStopIdx >= stops.length) currentStopIdx = 0;
+  updateNavDisplay();
+}
+
+// ── STOP MANAGEMENT ──
+function moveUp(i) { if (i > 0) { [stops[i-1], stops[i]] = [stops[i], stops[i-1]]; renderList(); renderMarkers(); } }
+function moveDown(i) { if (i < stops.length-1) { [stops[i], stops[i+1]] = [stops[i+1], stops[i]]; renderList(); renderMarkers(); } }
+function removeStop(i) { stops.splice(i, 1); renderList(); renderMarkers(); }
+function clearAll() { if (stops.length && confirm('Alle stops wissen?')) { stops = []; navigating = false; if (routeLayer) { map.removeLayer(routeLayer); routeLayer = null; } renderList(); renderMarkers(); document.getElementById('current-overlay').style.display = 'none'; } }
+
+// ── IMPORT ──
+async function importAddresses() {
+  const text = document.getElementById('import-text').value.trim();
+  if (!text) return;
+  const lines = text.split(/\n/).map(l => l.split(',')[0].trim()).filter(l => l.length > 3);
+  if (lines.length === 0) { showToast('Geen geldige adressen gevonden.'); return; }
+  showToast(`${lines.length} adressen importeren…`);
+  let added = 0;
+  for (const line of lines) {
+    const geo = await geocode(line);
+    if (geo) { addStop(line, geo.lat, geo.lon, geo.display); added++; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  showToast(`${added} van ${lines.length} adressen geïmporteerd ✓`);
+  document.getElementById('import-text').value = '';
+  switchTab('route');
+  if (stops.length >= 2) calculateRoute();
+}
+
+// ── SATELLITE ──
+function toggleSatellite() {
+  satellite = !satellite;
+  map.removeLayer(tileLayer);
+  tileLayer = L.tileLayer(satellite ? satTile : osmTile, { attribution: satellite ? '© Esri' : '© OpenStreetMap', maxZoom: 19 }).addTo(map);
+  document.getElementById('sat-btn').textContent = satellite ? '🗺 Kaart' : '🛰 Satelliet';
+}
+
+// ── UTILS ──
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Init
+renderList();
+</script>
+</body>
+</html>
